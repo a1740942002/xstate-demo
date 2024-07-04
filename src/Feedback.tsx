@@ -1,62 +1,106 @@
-// Actors
-// - Internal state
-// - Send messages (events)
-// - Receive messages, change its "behavior" based on that message
-// - Spawn other actors
+import { feedbackMachine } from './feedbackMachine'
+import { useMachine } from '@xstate/react'
+import { createBrowserInspector } from '@statelyai/inspect'
 
-import { createActor, fromPromise, fromTransition } from 'xstate'
-
-// 1. Create actor logic ( like a reducer )
-const countLogic = fromTransition(
-  (state, event) => {
-    if (event.type === 'increment') {
-      return { count: state.count + 1 }
-    }
-    return state
-  },
-  { count: 0 }
-)
-
-const promiseLogic = fromPromise(async () => {
-  const result = await new Promise((res) => {
-    setTimeout(() => {
-      res('done')
-    }, 1000)
-  })
-
-  return result
+const { inspect } = createBrowserInspector({
+  // Comment out the line below to start the inspector
+  autoStart: false
 })
-
-// 2. Create actor
-const countActor = createActor(countLogic)
-const promiseActor = createActor(promiseLogic)
-
-// 3. (Optional) Subscribe to a actor snapshot updates
-countActor.subscribe((snapshot) => {
-  document.getElementById('output')!.innerHTML = String(snapshot.context.count)
-})
-
-promiseActor.subscribe((snapshot) => {
-  console.log(snapshot.output)
-})
-
-// 4. start the actor
-countActor.start()
-promiseActor.start()
 
 export function Feedback() {
-  return (
-    <div>
+  const [state, send] = useMachine(feedbackMachine, {
+    inspect
+  })
+
+  if (state.matches('closed')) {
+    return (
       <div>
-        Output: <output id="output"></output>
+        <em>Feedback form closed.</em>
+        <br />
+        <button
+          onClick={() => {
+            send({ type: 'restart' })
+          }}
+        >
+          Provide more feedback
+        </button>
       </div>
+    )
+  }
+
+  return (
+    <div className="feedback">
       <button
+        className="close-button"
         onClick={() => {
-          countActor.send({ type: 'increment' })
+          send({ type: 'close' })
         }}
       >
-        +
+        Close
       </button>
+      {state.matches('prompt') && (
+        <div className="step">
+          <h2>How was your experience?</h2>
+          <button
+            className="button"
+            onClick={() => send({ type: 'feedback.good' })}
+          >
+            Good
+          </button>
+          <button
+            className="button"
+            onClick={() => send({ type: 'feedback.bad' })}
+          >
+            Bad
+          </button>
+        </div>
+      )}
+
+      {state.matches('thanks') && (
+        <div className="step">
+          <h2>Thanks for your feedback.</h2>
+          {state.context.feedback.length > 0 && (
+            <p>"{state.context.feedback}"</p>
+          )}
+        </div>
+      )}
+
+      {state.matches('form') && (
+        <form
+          className="step"
+          onSubmit={(ev) => {
+            ev.preventDefault()
+            send({
+              type: 'submit'
+            })
+          }}
+        >
+          <h2>What can we do better?</h2>
+          <textarea
+            name="feedback"
+            rows={4}
+            placeholder="So many things..."
+            onChange={(ev) => {
+              send({
+                type: 'feedback.update',
+                value: ev.target.value
+              })
+            }}
+          />
+          <button className="button" disabled={!state.can({ type: 'submit' })}>
+            Submit
+          </button>
+          <button
+            className="button"
+            type="button"
+            onClick={() => {
+              send({ type: 'back' })
+            }}
+          >
+            Back
+          </button>
+        </form>
+      )}
     </div>
   )
 }
